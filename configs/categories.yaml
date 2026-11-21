@@ -1,0 +1,200 @@
+# SpendSense Canonical Category Taxonomy & Keyword Mapping Configuration
+
+version: "1.0.0"
+
+# 10 Canonical Super-Categories (aligned with Primary Dataset A)
+canonical_categories:
+  - id: food_and_dining
+    name: "Food & Dining"
+    description: "Restaurants, cafes, grocery stores, food delivery, bakeries, bars."
+    keywords:
+      - swiggy
+      - zomato
+      - mcdonald
+      - starbucks
+      - dominos
+      - kfc
+      - cafe
+      - restaurant
+      - grocery
+      - supermarket
+      - blinkit
+      - zepto
+      - instamart
+      - bigbasket
+      - dining
+      - bakery
+      - pizza
+      - burger
+
+  - id: transportation
+    name: "Transportation"
+    description: "Rideshare, taxis, public transit, flights, trains, fuel, parking, tolls."
+    keywords:
+      - uber
+      - ola
+      - rapido
+      - metro
+      - irctc
+      - railway
+      - petrol
+      - fuel
+      - shell
+      - hpcl
+      - bpcl
+      - iocl
+      - parking
+      - toll
+      - fastag
+      - flight
+      - indigo
+      - air india
+
+  - id: shopping_and_retail
+    name: "Shopping & Retail"
+    description: "Online marketplaces, clothing, electronics, books, home goods."
+    keywords:
+      - amazon
+      - flipkart
+      - myntra
+      - ajio
+      - meesho
+      - zara
+      - h&m
+      - croma
+      - reliance digital
+      - retail
+      - mart
+      - store
+      - electronics
+      - apparel
+
+  - id: entertainment_and_recreation
+    name: "Entertainment & Recreation"
+    description: "Streaming subscriptions, movies, gaming, events, sports, hobbies."
+    keywords:
+      - netflix
+      - spotify
+      - hotstar
+      - prime video
+      - bookmyshow
+      - pvr
+      - inox
+      - cinema
+      - youtube
+      - gaming
+      - steam
+      - playstation
+      - concert
+
+  - id: healthcare_and_medical
+    name: "Healthcare & Medical"
+    description: "Pharmacies, hospitals, clinics, diagnostic labs, health insurance."
+    keywords:
+      - pharmacy
+      - apollo
+      - medplus
+      - 1mg
+      - pharmeasy
+      - hospital
+      - clinic
+      - doctor
+      - dental
+      - diagnostics
+      - lab
+      - healthcare
+      - medicine
+
+  - id: utilities_and_services
+    name: "Utilities & Services"
+    description: "Electricity, water, gas, broadband, mobile recharge, maintenance."
+    keywords:
+      - airtel
+      - jio
+      - vi
+      - broadband
+      - electricity
+      - bescom
+      - tneb
+      - msedcl
+      - gas
+      - indane
+      - hp gas
+      - water
+      - recharge
+      - billpay
+      - maintenance
+
+  - id: financial_services
+    name: "Financial Services"
+    description: "Investments, mutual funds, credit card bill payments, bank fees, interest."
+    keywords:
+      - zerodha
+      - groww
+      - angelone
+      - cred
+      - credit card payment
+      - mutual fund
+      - sip
+      - loan
+      - emi
+      - insurance premium
+      - lic
+      - bank charge
+      - interest
+
+  - id: income
+    name: "Income"
+    description: "Salary, freelance, refunds, dividends, cashbacks, interest received."
+    keywords:
+      - salary
+      - payroll
+      - stipend
+      - dividend
+      - cashback
+      - refund
+      - interest credit
+      - reimbursement
+
+  - id: government_and_legal
+    name: "Government & Legal"
+    description: "Taxes, municipal charges, passport fees, court fees, penalties, fines."
+    keywords:
+      - incometax
+      - gst
+      - challan
+      - traffic fine
+      - municipality
+      - passport
+      - stamp duty
+      - tax payment
+
+  - id: charity_and_donations
+    name: "Charity & Donations"
+    description: "NGOs, religious contributions, relief funds, non-profit donations."
+    keywords:
+      - charity
+      - donation
+      - ngo
+      - pm cares
+      - temple
+      - church
+      - relief fund
+      - unicef
+
+# System Special Categories (not trained in supervised model, handled via application rules)
+system_categories:
+  - id: transfer
+    name: "Transfer"
+    description: "Internal transfers between own accounts, peer-to-peer personal transfers."
+    keywords:
+      - self transfer
+      - transfer to
+      - transfer from
+      - p2p transfer
+      - neft transfer
+
+  - id: uncategorized
+    name: "Uncategorized / Review Required"
+    description: "Transactions with low prediction confidence or ambiguous descriptions."
+

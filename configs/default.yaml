@@ -1,0 +1,57 @@
+# SpendSense Default System & Pipeline Configuration
+
+app:
+  name: "SpendSense"
+  version: "0.1.0"
+  description: "Personal Expense Intelligence with Classical ML & Feedback Loops"
+  debug: false
+  random_seed: 42
+
+paths:
+  data_dir: "data"
+  raw_data_dir: "data/raw"
+  processed_data_dir: "data/processed"
+  samples_dir: "data/samples"
+  models_dir: "models"
+  reports_dir: "reports"
+  database_url: "sqlite:///data/spendsense.db"
+  categories_config: "configs/categories.yaml"
+
+data:
+  sample_size: 150000          # Default sample size for local CPU training (8GB RAM budget)
+  train_split: 0.70
+  val_split: 0.15
+  test_split: 0.15
+  min_description_length: 3
+  max_description_length: 255
+
+features:
+  use_word_tfidf: true
+  use_char_tfidf: true
+  word_ngram_range: [1, 2]
+  char_ngram_range: [2, 5]
+  max_word_features: 15000
+  max_char_features: 25000
+  sublinear_tf: true
+  strip_accents: "unicode"
+
+model:
+  active_model_name: "linear_svc"  # Options: dummy, naive_bayes, logistic_regression, linear_svc
+  confidence_threshold: 0.70        # Predictions with confidence < 0.70 are flagged for human review
+  calibration_method: "sigmoid"     # Platt scaling (CalibratedClassifierCV) for LinearSVC
+
+recurring:
+  min_occurrences: 3               # Minimum recurring transactions needed
+  max_interval_days_variance: 4    # Maximum days variance to consider fixed schedule (e.g., monthly)
+  max_amount_pct_variance: 0.05    # Maximum 5% price change variance
+
+anomaly:
+  method: "statistical_iqr"        # Options: statistical_iqr, isolation_forest
+  min_history_transactions: 10     # Need at least 10 category transactions to establish user baseline
+  iqr_multiplier: 1.5              # Standard Tukey fence (Q3 + 1.5 * IQR)
+  contamination_rate: 0.05         # Expected outlier proportion for Isolation Forest
+
+mlflow:
+  tracking_uri: "file:./mlruns"
+  experiment_name: "spendsense-categorization"
+
