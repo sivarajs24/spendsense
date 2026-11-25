@@ -1,0 +1,1 @@
+"""SpendSense FastAPI service package."""

@@ -1,0 +1,1 @@
+"""SpendSense Streamlit dashboard package."""

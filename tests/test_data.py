@@ -11,7 +11,7 @@ from spendsense.data.preprocess import (
     normalize_description,
     parse_upi_description,
 )
-from spendsense.data.split import grouped_merchant_split, train_val_test_split
+from spendsense.data.split import grouped_merchant_split, train_val_split, train_val_test_split
 from spendsense.data.validate import (
     clean_numeric_amount,
     parse_flexible_date,
@@ -71,6 +71,22 @@ def test_load_statement_csv_with_sample_file():
     assert swiggy_row["direction"] == "debit"
     assert swiggy_row["amount"] == -450.00
     assert "swiggy" in swiggy_row["normalized_description"]
+
+
+def test_train_val_split_stratification():
+    data = {
+        "raw_description": [f"item_{i}" for i in range(100)],
+        "true_category": ["Food & Dining"] * 50 + ["Transportation"] * 30 + ["Income"] * 20,
+    }
+    df = pd.DataFrame(data)
+
+    train_df, val_df = train_val_split(df, target_col="true_category", train_size=0.70, random_state=42)
+    assert len(train_df) == 70
+    assert len(val_df) == 30
+
+    train_dist = train_df["true_category"].value_counts(normalize=True)
+    val_dist = val_df["true_category"].value_counts(normalize=True)
+    assert abs(train_dist["Food & Dining"] - val_dist["Food & Dining"]) < 0.05
 
 
 def test_stratified_train_val_test_split_ratios():

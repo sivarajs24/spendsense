@@ -11,6 +11,33 @@ import pandas as pd
 from sklearn.model_selection import GroupShuffleSplit, StratifiedShuffleSplit
 
 
+def train_val_split(
+    df: pd.DataFrame,
+    target_col: str = "true_category",
+    train_size: float = 0.70,
+    random_state: int = 42,
+) -> Tuple[pd.DataFrame, pd.DataFrame]:
+    """Splits a dataset into Train and Validation partitions with stratification.
+
+    Ensures all classes are balanced across both splits.
+    """
+    clean_df = df.dropna(subset=[target_col]).copy()
+    if clean_df.empty:
+        raise ValueError(f"Target column '{target_col}' has no valid values to split.")
+
+    sss = StratifiedShuffleSplit(
+        n_splits=1,
+        train_size=train_size,
+        random_state=random_state,
+    )
+
+    train_idx, val_idx = next(sss.split(clean_df, clean_df[target_col]))
+    train_df = clean_df.iloc[train_idx].copy().reset_index(drop=True)
+    val_df = clean_df.iloc[val_idx].copy().reset_index(drop=True)
+
+    return train_df, val_df
+
+
 def train_val_test_split(
     df: pd.DataFrame,
     target_col: str = "true_category",
