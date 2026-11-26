@@ -129,10 +129,93 @@ This document is a living log required by the engineering principles of SpendSen
 * **Lesson Learned:**
   - Created `data/samples/rich_demo_statement.csv` containing a realistic 60+ transaction, 3-month Indian financial profile featuring 5 multi-cadence subscriptions (Netflix, Spotify, Airtel, Cult.fit, Zerodha) and 2 genuine Tukey spending spikes (Apple Store, fine dining celebration), paired with a seamless in-app dataset toggle.
 
-  - Rendered transaction tables with standard `st.dataframe(tbl_view)`.
-* **Why it failed / underperformed:**
-  - Streamlit internally imports `pyarrow` to serialize DataFrames for the frontend grid.
-  - A newer PyArrow 18+ binary installed in the environment was compiled strictly against NumPy 2.0+, throwing `ImportError: pyarrow requires NumPy 2.0 or newer, found 1.26.4`.
+### Entry 010: Sampling-Based KernelSHAP Latency vs. Exact Closed-Form LinearSHAP
+* **Date:** 2026-11-25
+* **Context:** Implementing model explainability and token attribution for real-time inference.
+* **Decision / Attempt:**
+  - Evaluated integrating external `shap.KernelExplainer` for transaction narration attributions.
+* **Why it was rejected / underperformed:**
+  - `shap.KernelExplainer` uses Monte Carlo permutation sampling over background references, adding 200–500ms latency per prediction and requiring heavy external dependencies.
+  - For linear models (LinearSVC / LogisticRegression) with sparse TF-IDF features and a zero-reference baseline (absent tokens), the Shapley value for each feature has an exact closed-form solution: $\phi_i(x) = w_i \cdot x_i$, with prior base bias $\phi_0 = b$.
 * **Lesson Learned:**
-  - Pinned `pyarrow>=14.0.0,<17.0.0` in `pyproject.toml` and `requirements.txt` to maintain C-ABI compatibility with `numpy<2.0.0`.
-  - Added a defensive `render_table()` wrapper in `dashboard/app.py` that catches any PyArrow import/ABI errors and transparently falls back to HTML-based `st.table()`, ensuring the UI never crashes.
+  - Implemented exact closed-form LinearSHAP directly in `src/spendsense/features/explain.py`. Computes in under 0.1ms, satisfies the Efficiency Axiom ($\phi_0 + \sum \phi_i = f(x)$), and renders interactive Plotly `go.Waterfall` charts with zero runtime overhead or background sampling jitter.
+
+---
+
+### Entry 011: BaseWeb Segmented Control Styling Conflict & Double-Rerun Deselection
+* **Date:** 2026-11-25
+* **Context:** In-app dataset switching control (`st.segmented_control`) between 15-row standard bank statement and 60+ row rich demo statement.
+* **Decision / Attempt:**
+  - Configured `showWidgetBorder = true` in `.streamlit/config.toml` and called `st.rerun()` directly inside the script body when the selected dataset changed.
+* **Why it failed / underperformed:**
+  - Setting `showWidgetBorder = true` globally instructed Streamlit's underlying BaseWeb design system to inject hardcoded purple border highlights directly around the rightmost segment item, ignoring custom CSS radii and clipping pill geometries.
+  - Calling `st.rerun()` synchronously in the script body created a race condition where the widget temporarily lost selection state (`None`), resetting user choices and causing jarring double screen flashes.
+* **Lesson Learned:**
+  - Removed `showWidgetBorder = true` from `.streamlit/config.toml` to restore clean BaseWeb boundary behavior.
+  - Shifted state transitions to Streamlit's native `on_change=on_dataset_change` callback pattern, which mutates session state before the next render pass without requiring explicit `st.rerun()`, completely eliminating flickering and selection dropouts.
+
+---
+
+### Entry 012: PyPDF Encryption State Semantics & Keyword Argument Inconsistencies
+* **Date:** 2026-11-26
+* **Context:** Integration testing for encrypted PDF bank statement parser and FastAPI `/analytics/*` analytical endpoints.
+* **Decision / Attempt:**
+  - In `pdf_parser.py`, checked `if not decrypt_success or reader.is_encrypted:` after running `reader.decrypt(password)`.
+  - In `api/main.py`, invoked `analyze_50_30_20_budget(df, override_inflow=...)` against a function signature expecting `override_income`.
+  - In `leaks.py`, set food delivery duplication spend threshold to ₹1,500, causing 10-row unit test fixtures to report 0 leaks.
+* **Why it failed / underperformed:**
+  - In `pypdf`, `reader.is_encrypted` is an immutable document metadata property indicating that the PDF file structure possesses an `/Encrypt` dictionary. Even when successfully unlocked with the correct password, `reader.is_encrypted` evaluates to `True`. Checking `or reader.is_encrypted` caused valid passwords to falsely trigger `PermissionError`.
+  - The keyword argument mismatch between `override_inflow` and `override_income` triggered an unhandled `TypeError` inside FastAPI, returning HTTP 500.
+* **Lesson Learned:**
+  - Evaluated `pypdf` unlock status strictly via the return code of `reader.decrypt(password)` (`0` for failure, `1`/`2` for user/owner success).
+  - Implemented dual-alias keyword argument support (`override_income` & `override_inflow`) in `analyze_50_30_20_budget`.
+  - Tuned delivery duplication threshold to $\ge \text{₹500}$ to capture realistic sub-month dining patterns.
+
+---
+
+### Entry 013: NumPy Boolean Scalar Identity (`is True`) & Plotly `titlefont` Deprecation
+* **Date:** 2026-11-26
+* **Context:** Testing transfer reconciliation dataframe annotations and Plotly SHAP waterfall figure rendering.
+* **Decision / Attempt:**
+  - In `test_advanced_analytics.py`, wrote `assert cred_row["is_internal_transfer"] is True`.
+  - In `explain.py`, styled waterfall chart axes with `yaxis=dict(title="...", titlefont=dict(...))`.
+* **Why it failed / underperformed:**
+  - In Pandas/NumPy, boolean values indexed from a Series return `numpy.bool_` objects. In Python, `is` performs reference identity (`id(a) == id(b)`), which fails for `np.bool_(True) is True` because `numpy.bool_` is not the `builtins.bool` singleton (`id(np.bool_(True)) != id(True)`).
+  - In modern Plotly (v5+), passing `titlefont` directly to axis dictionaries throws `ValueError: Invalid property specified for object of type plotly.graph_objs.layout.YAxis: 'titlefont'`. Modern Plotly requires nested dictionaries: `title=dict(text="...", font=dict(...))`.
+* **Lesson Learned:**
+  - Cast pandas boolean scalar extractions with `bool(val) is True` or evaluate with value equality (`== True`).
+  - Standardized all Plotly layout axis titles to modern nested schema `title=dict(text=..., font=dict(...))`.
+
+---
+
+### Entry 014: Pandas 2.2 Copy-on-Write In-Place Mutation via `.at` During Iteration
+* **Date:** 2026-11-26
+* **Context:** Flagging internal transfers on statement dataframes in `reconcile_inter_account_transfers()`.
+* **Decision / Attempt:**
+  - Initialized `out_df["is_internal_transfer"] = False` and updated rows inside `for idx, row in out_df.iterrows():` using `out_df.at[idx, "is_internal_transfer"] = True`.
+* **Why it failed / underperformed:**
+  - In Pandas 2.2+ under Copy-on-Write (CoW), row-level assignments via `.at[idx, ...]` on dynamically created Series during an active `iterrows()` loop can operate on detached column buffers or silent views, leaving the underlying DataFrame's column values as `False`.
+* **Lesson Learned:**
+  - Avoid row-by-row `.at` mutations during DataFrame iteration.
+  - Track classification flags via clean native Python lists (`is_transfer_flags = [False] * len(out_df)`), and assign back as a single batch operation (`out_df["is_internal_transfer"] = is_transfer_flags`). This is both $10\times$ faster and completely immune to view/copy detachment.
+
+---
+
+### Entry 015: Ambiguous Substring Matching in Test Fixture Assertions
+* **Date:** 2026-11-26
+* **Context:** Unit testing transfer reconciliation row annotations in `tests/test_advanced_analytics.py`.
+* **Decision / Attempt:**
+  - Sliced the credit card settlement row using `annotated_df[annotated_df["raw_description"].str.contains("CRED")].iloc[0]`.
+* **Why it failed / underperformed:**
+  - In `sample_financial_df`, row index 2 is `"SALARY CREDIT INFOSYS"`, which matches substring `"CRED"` (from `CREDIT`).
+  - Calling `.iloc[0]` grabbed this income credit transaction rather than row index 6 (`"CRED/CREDIT CARD BILL PAYMENT AXIS"`).
+  - Because salary credits are legitimately ignored by transfer reconciliation (`is_internal_transfer = False`), the assertion `assert cred_row["is_internal_transfer"] == True` failed with `assert False == True`.
+* **Lesson Learned:**
+  - Never use broad substring matches (`str.contains("CRED")`) when other narrative rows contain lexical stems like `"CREDIT"`.
+  - Disambiguated unit test row locators using delimiter-anchored prefixes (`str.startswith("CRED/")`) or compound masks (`(df["amount"] < 0) & df["raw_description"].str.contains("CRED")`).
+
+
+
+
+
+

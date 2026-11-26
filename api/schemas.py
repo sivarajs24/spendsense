@@ -63,3 +63,44 @@ class FeedbackResponse(BaseModel):
     success: bool
     message: str
     transaction_id: str
+
+
+# --- Advanced Analytics Schemas ---
+
+class TransactionItem(BaseModel):
+    """Normalized transaction row for analytical evaluations."""
+    transaction_id: str = Field(..., description="Unique transaction identifier.")
+    date: Optional[str] = Field(None, description="Transaction date (YYYY-MM-DD or standard bank format).")
+    raw_description: str = Field(..., description="Raw transaction narration or description.")
+    amount: float = Field(..., description="Transaction amount (negative for debits, positive for credits).")
+    predicted_category: Optional[str] = Field(None, description="Assigned category, if already classified.")
+
+
+class TaxAnalyticsRequest(BaseModel):
+    """Input payload for tax deductions and regime simulation."""
+    transactions: List[TransactionItem] = Field(..., min_length=1)
+    annual_gross_income: float = Field(1200000.0, ge=0.0, description="Annual gross income for regime comparison.")
+    is_senior_citizen: bool = Field(False, description="Whether the taxpayer is a senior citizen (60+).")
+
+
+class TransferReconciliationRequest(BaseModel):
+    """Input payload for inter-account transfer reconciliation."""
+    transactions: List[TransactionItem] = Field(..., min_length=1)
+
+
+class BudgetAnalyticsRequest(BaseModel):
+    """Input payload for 50/30/20 budgeting and burn rate pacing."""
+    transactions: List[TransactionItem] = Field(..., min_length=1)
+    override_inflow: Optional[float] = Field(None, ge=0.0, description="Optional explicit monthly income.")
+
+
+class HealthAnalyticsRequest(BaseModel):
+    """Input payload for financial vitality and emergency runway scoring."""
+    transactions: List[TransactionItem] = Field(..., min_length=1)
+    override_liquid_balance: Optional[float] = Field(None, ge=0.0, description="Optional liquid cash reserve.")
+
+
+class LeakAnalyticsRequest(BaseModel):
+    """Input payload for money leak and redundant subscription detection."""
+    transactions: List[TransactionItem] = Field(..., min_length=1)
+

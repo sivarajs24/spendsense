@@ -1,10 +1,12 @@
 """SpendSense — World-Class FinTech Intelligence Dashboard.
 
 Engineered with executive-tier design aesthetics (Stripe, Linear, Mercury, Apple Card):
-Micro-interactions, luxury typography, live AI playground with feature attribution,
-human-in-the-loop active learning retrain triggers, and zero clunky raw data dumps.
+Micro-interactions, luxury typography, live AI playground with SHAP waterfall attribution,
+Indian Tax (80C/80D/HRA) intelligence, 50/30/20 budgeting, financial vitality health scoring,
+inter-account transfer reconciliation, money leak sentinel, and encrypted bank PDF ingestion.
 """
 
+from io import BytesIO
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 import numpy as np
@@ -14,12 +16,18 @@ import plotly.graph_objects as go
 import streamlit as st
 
 from spendsense.analytics.anomaly import detect_spending_anomalies
+from spendsense.analytics.budget import analyze_50_30_20_budget
+from spendsense.analytics.health import calculate_financial_health
+from spendsense.analytics.leaks import detect_money_leaks
 from spendsense.analytics.recurring import detect_recurring_payments
 from spendsense.analytics.summaries import generate_spending_summary
+from spendsense.analytics.tax import compare_tax_regimes, detect_tax_deductions
+from spendsense.analytics.transfers import reconcile_inter_account_transfers
 from spendsense.config import get_config
 from spendsense.data.load import load_statement_csv
+from spendsense.data.pdf_parser import parse_bank_statement_pdf
 from spendsense.data.preprocess import normalize_description
-from spendsense.features.explain import explain_text_prediction
+from spendsense.features.explain import build_waterfall_figure, explain_text_prediction
 from spendsense.feedback.retrain import evaluate_and_promote_candidate_model
 from spendsense.feedback.store import FeedbackStore
 from spendsense.models.registry import ModelRegistry
@@ -64,16 +72,27 @@ def render_plotly_chart(fig: Any, alt_text: str = "Chart"):
             st.plotly_chart(fig)
 
 
-
 # ----------------- WORLD-CLASS LUXURY BRIGHT CSS -----------------
 st.markdown("""
 <style>
     @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@500;600;700&display=swap');
 
-    /* Clean Streamlit Boilerplate */
-    #MainMenu, header, footer, [data-testid="stToolbar"], [data-testid="stDecoration"] {
+    /* Clean Streamlit Boilerplate & Zero Header Gap */
+    #MainMenu, header, footer, [data-testid="stToolbar"], [data-testid="stDecoration"], [data-testid="stHeader"], .stAppHeader {
         display: none !important;
         visibility: hidden !important;
+        height: 0px !important;
+        margin: 0 !important;
+        padding: 0 !important;
+    }
+
+    /* Collapse empty style container so it takes zero height */
+    div[data-testid="stElementContainer"]:has(style:only-child),
+    div[data-testid="element-container"]:has(style:only-child) {
+        display: none !important;
+        height: 0 !important;
+        margin: 0 !important;
+        padding: 0 !important;
     }
 
     .stApp {
@@ -83,8 +102,17 @@ st.markdown("""
         -webkit-font-smoothing: antialiased;
     }
 
-    .main .block-container {
-        padding: 1.5rem 2.5rem 3.5rem 2.5rem !important;
+    .main, [data-testid="stMain"] {
+        padding-top: 0 !important;
+        margin-top: 0 !important;
+    }
+
+    .main .block-container,
+    [data-testid="stAppViewBlockContainer"] {
+        padding-top: 0.6rem !important;
+        padding-bottom: 2rem !important;
+        padding-left: 2rem !important;
+        padding-right: 2rem !important;
         max-width: 1440px;
     }
 
@@ -98,11 +126,11 @@ st.markdown("""
         background: #FFFFFF;
         border: 1px solid #E2E8F0;
         border-radius: 20px;
-        padding: 18px 28px;
+        padding: 16px 26px;
         display: flex;
         justify-content: space-between;
         align-items: center;
-        margin-bottom: 24px;
+        margin-bottom: 20px;
         box-shadow: 0 4px 20px -2px rgba(15, 23, 42, 0.05);
     }
     .hero-brand {
@@ -111,19 +139,19 @@ st.markdown("""
         gap: 16px;
     }
     .hero-logo {
-        width: 48px;
-        height: 48px;
+        width: 46px;
+        height: 46px;
         border-radius: 14px;
         background: linear-gradient(135deg, #4F46E5 0%, #06B6D4 100%);
         display: flex;
         align-items: center;
         justify-content: center;
         color: white;
-        font-size: 1.5rem;
+        font-size: 1.45rem;
         box-shadow: 0 8px 16px -4px rgba(79, 70, 229, 0.4);
     }
     .hero-title {
-        font-size: 1.5rem;
+        font-size: 1.45rem;
         font-weight: 800;
         letter-spacing: -0.5px;
         color: #0F172A;
@@ -131,7 +159,7 @@ st.markdown("""
         line-height: 1.1;
     }
     .hero-desc {
-        font-size: 0.82rem;
+        font-size: 0.80rem;
         color: #64748B;
         font-weight: 500;
         margin-top: 3px;
@@ -139,15 +167,15 @@ st.markdown("""
     .hero-badges {
         display: flex;
         align-items: center;
-        gap: 12px;
+        gap: 10px;
     }
     .pill-live {
         background: #ECFDF5;
         border: 1px solid #A7F3D0;
         color: #065F46;
-        padding: 6px 14px;
+        padding: 6px 13px;
         border-radius: 9999px;
-        font-size: 0.78rem;
+        font-size: 0.76rem;
         font-weight: 700;
         display: flex;
         align-items: center;
@@ -158,9 +186,9 @@ st.markdown("""
         background: #EEF2FF;
         border: 1px solid #C7D2FE;
         color: #3730A3;
-        padding: 6px 14px;
+        padding: 6px 13px;
         border-radius: 9999px;
-        font-size: 0.78rem;
+        font-size: 0.76rem;
         font-weight: 700;
     }
     .pulse-dot {
@@ -176,7 +204,7 @@ st.markdown("""
         background: #FFFFFF;
         border: 1px solid #E2E8F0;
         border-radius: 18px;
-        padding: 22px 24px;
+        padding: 20px 22px;
         box-shadow: 0 2px 10px rgba(15, 23, 42, 0.03);
         transition: transform 0.2s ease, box-shadow 0.2s ease, border-color 0.2s ease;
         position: relative;
@@ -188,7 +216,7 @@ st.markdown("""
         box-shadow: 0 10px 25px -5px rgba(15, 23, 42, 0.08);
     }
     .kpi-label {
-        font-size: 0.78rem;
+        font-size: 0.76rem;
         font-weight: 700;
         text-transform: uppercase;
         letter-spacing: 0.6px;
@@ -198,14 +226,14 @@ st.markdown("""
         justify-content: space-between;
     }
     .kpi-val {
-        font-size: 2.1rem;
+        font-size: 1.95rem;
         font-weight: 800;
         letter-spacing: -0.5px;
         line-height: 1.2;
         margin-bottom: 4px;
     }
     .kpi-tag {
-        font-size: 0.82rem;
+        font-size: 0.80rem;
         font-weight: 600;
         display: flex;
         align-items: center;
@@ -219,7 +247,7 @@ st.markdown("""
         border: 1px solid #E2E8F0 !important;
         padding: 6px !important;
         border-radius: 16px !important;
-        margin-bottom: 24px !important;
+        margin-bottom: 22px !important;
         display: flex !important;
         flex-wrap: wrap !important;
         align-items: center !important;
@@ -233,8 +261,8 @@ st.markdown("""
     .stTabs [data-baseweb="tab"] {
         border-radius: 12px !important;
         font-weight: 700 !important;
-        font-size: 0.92rem !important;
-        padding: 10px 22px !important;
+        font-size: 0.90rem !important;
+        padding: 10px 20px !important;
         color: #64748B !important;
         border: 1.5px solid transparent !important;
         background-color: transparent !important;
@@ -263,7 +291,7 @@ st.markdown("""
         overflow: visible !important;
     }
     .stTabs [data-baseweb="tab"] p {
-        font-size: 0.92rem !important;
+        font-size: 0.90rem !important;
         font-weight: 700 !important;
         line-height: 1.4 !important;
         margin: 0 !important;
@@ -376,11 +404,55 @@ st.markdown("""
         border-radius: 6px;
         margin: 2px 3px 2px 0;
     }
+
+    /* Segmented Control Luxury FinTech Pill Styling */
+    div[data-testid="stSegmentedControl"] {
+        margin-bottom: 8px;
+    }
+    div[data-testid="stSegmentedControl"] [data-baseweb="button-group"] {
+        background-color: #F1F5F9 !important;
+        border: 1px solid #E2E8F0 !important;
+        border-radius: 14px !important;
+        padding: 3px !important;
+        gap: 4px !important;
+        display: inline-flex !important;
+        align-items: center !important;
+    }
+    div[data-testid="stSegmentedControl"] button {
+        border: none !important;
+        outline: none !important;
+        border-radius: 11px !important;
+        font-weight: 700 !important;
+        font-size: 0.88rem !important;
+        padding: 8px 18px !important;
+        color: #64748B !important;
+        background-color: transparent !important;
+        box-shadow: none !important;
+        transition: all 0.15s cubic-bezier(0.4, 0, 0.2, 1) !important;
+    }
+    div[data-testid="stSegmentedControl"] button:hover {
+        color: #0F172A !important;
+        background-color: rgba(255, 255, 255, 0.5) !important;
+    }
+    div[data-testid="stSegmentedControl"] button[aria-checked="true"],
+    div[data-testid="stSegmentedControl"] button[aria-pressed="true"],
+    div[data-testid="stSegmentedControl"] button[data-selected="true"] {
+        background-color: #FFFFFF !important;
+        color: #4F46E5 !important;
+        border: 1.5px solid #CBD5E1 !important;
+        box-shadow: 0 2px 6px -1px rgba(15, 23, 42, 0.08) !important;
+    }
 </style>
 """, unsafe_allow_html=True)
 
 
 # ----------------- SAFE SESSION STATE & INGESTION -----------------
+DATASET_OPTIONS = [
+    "⚡ Rich 3-Month Demo (60+ Txns with Subscriptions & Spikes)",
+    "📄 Standard Bank Statement (15 Txns)",
+]
+
+
 def load_and_classify(file_path: Path) -> pd.DataFrame:
     """Helper to load a statement CSV and score all transactions with active model."""
     if not file_path.exists():
@@ -404,13 +476,40 @@ def load_and_classify(file_path: Path) -> pd.DataFrame:
 
 
 def init_session_state():
+    rich_path = Path("data/samples/rich_demo_statement.csv")
+    sample_path = Path("data/samples/sample_bank_statement.csv")
     if "transactions_df" not in st.session_state:
-        # Default to rich 3-month demo statement if available, else sample
-        rich_path = Path("data/samples/rich_demo_statement.csv")
-        sample_path = Path("data/samples/sample_bank_statement.csv")
         target = rich_path if rich_path.exists() else sample_path
         st.session_state.transactions_df = load_and_classify(target)
         st.session_state.active_dataset_name = "rich_demo" if target == rich_path else "standard_sample"
+
+    if "dataset_selector" not in st.session_state:
+        st.session_state.dataset_selector = (
+            DATASET_OPTIONS[0]
+            if st.session_state.get("active_dataset_name") == "rich_demo"
+            else DATASET_OPTIONS[1]
+        )
+
+
+def on_dataset_change():
+    """Seamlessly switches datasets in memory on user click without double-reruns."""
+    chosen = st.session_state.get("dataset_selector")
+    if not chosen:
+        chosen = (
+            DATASET_OPTIONS[0]
+            if st.session_state.get("active_dataset_name") == "rich_demo"
+            else DATASET_OPTIONS[1]
+        )
+        st.session_state.dataset_selector = chosen
+
+    is_rich = "Rich" in chosen
+    target = (
+        Path("data/samples/rich_demo_statement.csv")
+        if is_rich
+        else Path("data/samples/sample_bank_statement.csv")
+    )
+    st.session_state.transactions_df = load_and_classify(target)
+    st.session_state.active_dataset_name = "rich_demo" if is_rich else "standard_sample"
 
 
 init_session_state()
@@ -459,56 +558,53 @@ st.markdown(f"""
 # Dataset Quick Selector in Sub-bar
 sub_c1, sub_c2 = st.columns([3, 1])
 with sub_c1:
-    dataset_options = [
-        "⚡ Rich 3-Month Demo (60+ Txns with Subscriptions & Spikes)",
-        "📄 Standard Bank Statement (15 Txns)",
-    ]
-    current_default = (
-        dataset_options[0]
-        if st.session_state.get("active_dataset_name", "rich_demo") == "rich_demo"
-        else dataset_options[1]
-    )
-
     if hasattr(st, "segmented_control"):
-        dataset_opt = st.segmented_control(
+        st.segmented_control(
             "Active Statement Dataset:",
-            options=dataset_options,
-            default=current_default,
+            options=DATASET_OPTIONS,
+            key="dataset_selector",
+            on_change=on_dataset_change,
         )
     else:
-        dataset_opt = st.radio(
+        st.radio(
             "Active Statement Dataset:",
-            options=dataset_options,
-            index=0 if current_default == dataset_options[0] else 1,
+            options=DATASET_OPTIONS,
+            key="dataset_selector",
+            on_change=on_dataset_change,
             horizontal=True,
         )
 
-    if dataset_opt:
-        is_rich_selected = "Rich" in dataset_opt
-        current_is_rich = st.session_state.get("active_dataset_name") == "rich_demo"
-        if is_rich_selected != current_is_rich:
-            t_path = (
-                Path("data/samples/rich_demo_statement.csv")
-                if is_rich_selected
-                else Path("data/samples/sample_bank_statement.csv")
-            )
-            st.session_state.transactions_df = load_and_classify(t_path)
-            st.session_state.active_dataset_name = "rich_demo" if is_rich_selected else "standard_sample"
-            st.rerun()
-
 with sub_c2:
-    st.markdown(f"<div style='text-align: right; padding-top: 14px; font-weight: 700; color: #64748B; font-size: 0.85rem;'>Active Threshold: <span style='color: #4F46E5;'>{active_thresh:.0%}</span></div>", unsafe_allow_html=True)
+    st.markdown(
+        f"<div style='text-align: right; padding-top: 14px; font-weight: 700; color: #64748B; font-size: 0.85rem;'>Active Threshold: <span style='color: #4F46E5;'>{active_thresh:.0%}</span></div>",
+        unsafe_allow_html=True,
+    )
 
 
-# ----------------- SAAS TABS -----------------
-tab_overview, tab_sandbox, tab_review, tab_recurring, tab_anomalies, tab_analytics, tab_import, tab_ml = st.tabs([
+# ----------------- MASTER NAVIGATION TABS -----------------
+(
+    tab_overview,
+    tab_tax,
+    tab_budget,
+    tab_leaks,
+    tab_sandbox,
+    tab_review,
+    tab_recurring,
+    tab_anomalies,
+    tab_analytics,
+    tab_import,
+    tab_ml,
+) = st.tabs([
     "📊 Financial Overview",
-    "⚡ AI Prediction Playground",
-    "🔍 Review & Feedback Queue",
-    "🔄 Recurring Subscriptions",
+    "🏛️ Tax Intelligence (80C/80D)",
+    "🎯 50/30/20 Budget & Burn",
+    "💧 Money Leak Sentinel",
+    "⚡ AI Playground",
+    "🔍 Review Queue",
+    "🔄 Subscriptions",
     "⚠️ Anomaly Alerts",
     "📈 Deep Analytics",
-    "📂 Import Statement",
+    "📂 Ingest Statement (CSV/PDF)",
     "🧠 Model Diagnostics",
 ])
 
@@ -520,50 +616,50 @@ with tab_overview:
     df = st.session_state.transactions_df
 
     if df.empty:
-        st.info("No transaction data loaded. Please import a bank statement CSV.")
+        st.info("No transaction data loaded. Please import a bank statement CSV or PDF.")
     else:
-        summary = generate_spending_summary(df)
+        # Reconcile transfers to prevent double counting
+        reconciled_df, transfer_summary = reconcile_inter_account_transfers(df)
+        health_rep = calculate_financial_health(reconciled_df)
+        summary = generate_spending_summary(reconciled_df)
 
-        # 4 Sleek KPI Cards
+        # 4 Sleek Executive KPI Cards
         k1, k2, k3, k4 = st.columns(4)
 
         with k1:
             st.markdown(f"""
             <div class="kpi-card">
-                <div class="kpi-label"><span>Transactions Ingested</span> <span>📑</span></div>
-                <div class="kpi-val mono-amount" style="color: #0F172A;">{summary.get('total_transactions', 0):,}</div>
-                <div class="kpi-tag" style="color: #10B981;">✓ 100% Normalized & Parsed</div>
+                <div class="kpi-label"><span>Vitality Health Score</span> <span>🏆</span></div>
+                <div class="kpi-val mono-amount" style="color: {health_rep.tier_color};">{health_rep.vitality_score} <span style="font-size: 1rem; color: #64748B;">/ 100</span></div>
+                <div class="kpi-tag" style="color: {health_rep.tier_color};">● {health_rep.tier}</div>
             </div>
             """, unsafe_allow_html=True)
 
         with k2:
             st.markdown(f"""
             <div class="kpi-card">
-                <div class="kpi-label"><span>Total Expenditure</span> <span>💳</span></div>
-                <div class="kpi-val mono-amount" style="color: #EF4444;">₹{summary.get('total_debits', 0.0):,.2f}</div>
-                <div class="kpi-tag" style="color: #EF4444;">↓ Outflow Across Categories</div>
+                <div class="kpi-label"><span>Emergency Fund Runway</span> <span>🛡️</span></div>
+                <div class="kpi-val mono-amount" style="color: #4F46E5;">{health_rep.emergency_runway_months} <span style="font-size: 1rem; color: #64748B;">Months</span></div>
+                <div class="kpi-tag" style="color: #059669;">Liquid: ₹{health_rep.liquid_reserves:,.0f}</div>
             </div>
             """, unsafe_allow_html=True)
 
         with k3:
             st.markdown(f"""
             <div class="kpi-card">
-                <div class="kpi-label"><span>Total Inflow</span> <span>💰</span></div>
+                <div class="kpi-label"><span>Total Monthly Inflow</span> <span>💰</span></div>
                 <div class="kpi-val mono-amount" style="color: #10B981;">₹{summary.get('total_credits', 0.0):,.2f}</div>
                 <div class="kpi-tag" style="color: #10B981;">↑ Salary, Dividends & Refunds</div>
             </div>
             """, unsafe_allow_html=True)
 
         with k4:
-            needs_review = int(summary.get("requires_review_count", 0))
-            rev_pct = float(summary.get("review_rate_pct", 0.0))
-            badge_col = "#D97706" if needs_review > 0 else "#10B981"
             st.markdown(f"""
             <div class="kpi-card">
-                <div class="kpi-label"><span>Review Queue Rate</span> <span>🛡️</span></div>
-                <div class="kpi-val mono-amount" style="color: {badge_col};">{rev_pct:.1f}%</div>
-                <div class="kpi-tag" style="color: {badge_col};">
-                    ⚡ {needs_review} txns below {active_thresh:.0%} confidence
+                <div class="kpi-label"><span>Effective Outflows</span> <span>💳</span></div>
+                <div class="kpi-val mono-amount" style="color: #EF4444;">₹{transfer_summary.effective_net_outflows:,.2f}</div>
+                <div class="kpi-tag" style="color: #3B82F6;">
+                    🛡️ ₹{transfer_summary.double_counting_prevented:,.0f} Transfers Reconciled
                 </div>
             </div>
             """, unsafe_allow_html=True)
@@ -662,8 +758,8 @@ with tab_overview:
         elif dir_filter == "Credits Only (Inflows)":
             filtered_df = filtered_df[filtered_df["amount"] > 0]
 
-        st.caption(f"Showing top {min(len(filtered_df), 12)} of {len(filtered_df)} matching transactions:")
-        for _, row in filtered_df.head(12).iterrows():
+        st.caption(f"Showing top {min(len(filtered_df), 10)} of {len(filtered_df)} matching transactions:")
+        for _, row in filtered_df.head(10).iterrows():
             cat = str(row.get("predicted_category", "Uncategorized"))
             meta = get_cat_meta(cat)
             amt = float(row.get("amount", 0.0))
@@ -693,10 +789,223 @@ with tab_overview:
 
 
 # =========================================================================
-# TAB 2: AI PREDICTION PLAYGROUND (THE SHOWCASE DEMO)
+# TAB 2: 🏛️ TAX & 80C/80D ENGINE (BRAND NEW MODULE)
+# =========================================================================
+with tab_tax:
+    st.markdown("### 🏛️ Indian Tax Intelligence & Deductions Engine")
+    st.write("Identifies tax-deductible expenditures under statutory chapters (80C, 80D, HRA) and compares tax liabilities across Old vs. New Regimes.")
+
+    df = st.session_state.transactions_df
+    if df.empty:
+        st.info("No transaction data available.")
+    else:
+        tax_summary = detect_tax_deductions(df)
+
+        # 4 Statutory KPI Cards
+        tx1, tx2, tx3, tx4 = st.columns(4)
+        with tx1:
+            pct_80c = min(100.0, (tax_summary.total_80c_claimed / 150000.0) * 100.0)
+            st.markdown(f"""
+            <div class="kpi-card">
+                <div class="kpi-label"><span>Section 80C Eligible</span> <span>📈</span></div>
+                <div class="kpi-val mono-amount" style="color: #4F46E5;">₹{tax_summary.total_80c_claimed:,.0f}</div>
+                <div class="kpi-tag" style="color: #64748B;">{pct_80c:.0f}% of ₹1.5L Limit Claimed</div>
+            </div>
+            """, unsafe_allow_html=True)
+
+        with tx2:
+            pct_80d = min(100.0, (tax_summary.total_80d_claimed / 25000.0) * 100.0)
+            st.markdown(f"""
+            <div class="kpi-card">
+                <div class="kpi-label"><span>Section 80D Health</span> <span>🏥</span></div>
+                <div class="kpi-val mono-amount" style="color: #14B8A6;">₹{tax_summary.total_80d_claimed:,.0f}</div>
+                <div class="kpi-tag" style="color: #64748B;">{pct_80d:.0f}% of ₹25k Limit Claimed</div>
+            </div>
+            """, unsafe_allow_html=True)
+
+        with tx3:
+            st.markdown(f"""
+            <div class="kpi-card">
+                <div class="kpi-label"><span>HRA Rent Paid</span> <span>🏠</span></div>
+                <div class="kpi-val mono-amount" style="color: #F59E0B;">₹{tax_summary.total_hra_rent_paid:,.0f}</div>
+                <div class="kpi-tag" style="color: #D97706;">Eligible under Section 10(13A)</div>
+            </div>
+            """, unsafe_allow_html=True)
+
+        with tx4:
+            st.markdown(f"""
+            <div class="kpi-card">
+                <div class="kpi-label"><span>Estimated Tax Saved</span> <span>💵</span></div>
+                <div class="kpi-val mono-amount" style="color: #10B981;">₹{tax_summary.estimated_tax_savings_30pct:,.0f}</div>
+                <div class="kpi-tag" style="color: #047857;">@ 30% Slab + 4% Cess</div>
+            </div>
+            """, unsafe_allow_html=True)
+
+        st.markdown("<br>#### ⚖️ Old vs. New Tax Regime Comparator", unsafe_allow_html=True)
+        col_inc, col_rec = st.columns([1.5, 2.5])
+        with col_inc:
+            annual_inc = st.number_input(
+                "Estimated Annual Gross Income (₹)",
+                min_value=300000,
+                max_value=10000000,
+                value=1200000,
+                step=50000,
+            )
+            comparison = compare_tax_regimes(float(annual_inc), tax_summary)
+
+        with col_rec:
+            st.markdown(f"""
+            <div class="kpi-card" style="border-left: 5px solid #4F46E5;">
+                <div style="font-weight: 800; font-size: 1.15rem; color: #0F172A;">
+                    🎯 Recommended: <span style="color: #4F46E5;">{comparison.recommended_regime}</span>
+                </div>
+                <div style="font-size: 0.95rem; color: #334155; margin-top: 6px;">
+                    Choosing <b>{comparison.recommended_regime}</b> saves you approximately <b style="color: #10B981;">₹{comparison.tax_savings:,.2f}</b> in taxes this financial year!
+                </div>
+                <div style="display: flex; gap: 24px; margin-top: 10px; font-size: 0.85rem; color: #64748B;">
+                    <span>New Regime Tax: <b style="color: #0F172A;">₹{comparison.new_regime_tax:,.0f}</b></span>
+                    <span>Old Regime Tax: <b style="color: #0F172A;">₹{comparison.old_regime_tax:,.0f}</b></span>
+                </div>
+            </div>
+            """, unsafe_allow_html=True)
+
+        st.markdown("<br>#### 📋 Detected Tax-Deductible Transactions", unsafe_allow_html=True)
+        if tax_summary.deduction_items:
+            for item in tax_summary.deduction_items:
+                st.markdown(f"""
+                <div class="txn-card">
+                    <div class="txn-left">
+                        <div class="txn-icon-box" style="background: #EEF2FF; border: 1px solid #C7D2FE;">🏛️</div>
+                        <div>
+                            <div class="txn-desc">{item.description}</div>
+                            <div class="txn-meta">{item.date or 'No Date'} • <span style="color: #4F46E5; font-weight: 700;">Section {item.section}</span>: {item.explanation}</div>
+                        </div>
+                    </div>
+                    <div class="txn-right">
+                        <div class="txn-amt mono-amount" style="color: #10B981;">₹{item.deductible_amount:,.2f}</div>
+                        <div class="txn-meta" style="color: #059669; font-weight: 700;">TAX DEDUCTIBLE</div>
+                    </div>
+                </div>
+                """, unsafe_allow_html=True)
+        else:
+            st.info("No tax-deductible expenditures detected in the current statement.")
+
+
+# =========================================================================
+# TAB 3: 🎯 50/30/20 BUDGET & BURN FORECAST (BRAND NEW MODULE)
+# =========================================================================
+with tab_budget:
+    st.markdown("### 🎯 50/30/20 Budgeting & Mid-Month Burn Forecaster")
+    st.write("Balances your income across **Needs (50%)**, **Wants (30%)**, and **Savings (20%)**, projecting your month-end spend trajectory.")
+
+    df = st.session_state.transactions_df
+    if df.empty:
+        st.info("No transaction data available.")
+    else:
+        b_rep = analyze_50_30_20_budget(df)
+
+        b1, b2, b3 = st.columns(3)
+        with b1:
+            bk = b_rep.buckets["Needs (50%)"]
+            stat_color = "#10B981" if bk.status == "Optimal" else "#EF4444"
+            st.markdown(f"""
+            <div class="kpi-card">
+                <div class="kpi-label"><span>Needs (Essentials)</span> <span>🏠</span></div>
+                <div class="kpi-val mono-amount" style="color: #0F172A;">₹{bk.allocated_amount:,.0f}</div>
+                <div class="kpi-tag" style="color: {stat_color};">● {bk.actual_pct:.1f}% (Target: 50%) • {bk.status}</div>
+            </div>
+            """, unsafe_allow_html=True)
+            st.progress(min(1.0, bk.actual_pct / 50.0))
+
+        with b2:
+            bk = b_rep.buckets["Wants (30%)"]
+            stat_color = "#10B981" if bk.status == "Optimal" else "#EF4444"
+            st.markdown(f"""
+            <div class="kpi-card">
+                <div class="kpi-label"><span>Wants (Lifestyle)</span> <span>🛍️</span></div>
+                <div class="kpi-val mono-amount" style="color: #0F172A;">₹{bk.allocated_amount:,.0f}</div>
+                <div class="kpi-tag" style="color: {stat_color};">● {bk.actual_pct:.1f}% (Target: 30%) • {bk.status}</div>
+            </div>
+            """, unsafe_allow_html=True)
+            st.progress(min(1.0, bk.actual_pct / 30.0))
+
+        with b3:
+            bk = b_rep.buckets["Savings (20%)"]
+            stat_color = "#10B981" if bk.status == "Optimal" else "#F59E0B"
+            st.markdown(f"""
+            <div class="kpi-card">
+                <div class="kpi-label"><span>Savings & Investments</span> <span>💰</span></div>
+                <div class="kpi-val mono-amount" style="color: #10B981;">₹{bk.allocated_amount:,.0f}</div>
+                <div class="kpi-tag" style="color: {stat_color};">● {bk.actual_pct:.1f}% (Target: 20%) • {bk.status}</div>
+            </div>
+            """, unsafe_allow_html=True)
+            st.progress(min(1.0, bk.actual_pct / 20.0))
+
+        st.markdown("<br>#### ⏱️ Mid-Month Burn-Rate Pace Meter", unsafe_allow_html=True)
+        wf = b_rep.wants_forecast
+        p1, p2, p3 = st.columns(3)
+        p1.metric("Current Daily Burn Rate", f"₹{wf.daily_burn_rate:,.2f} / day")
+        p2.metric("Projected Month-End Spend", f"₹{wf.projected_month_end_spend:,.2f}", f"Target: ₹{wf.budget_target:,.0f}")
+        p3.metric("Pacing Status", wf.pace_status, f"Breach Day: {wf.estimated_breach_day or 'None'}")
+
+        st.info(f"💡 **Coaching Action Plan:** {wf.recommendation}")
+
+
+# =========================================================================
+# TAB 4: 💧 MONEY LEAK SENTINEL (BRAND NEW MODULE)
+# =========================================================================
+with tab_leaks:
+    st.markdown("### 💧 Money Leak & Subscription Waste Sentinel")
+    st.write("Identifies silent financial drains: duplicate memberships, overlapping streaming services, and high-frequency micro-transactions.")
+
+    df = st.session_state.transactions_df
+    if df.empty:
+        st.info("No transaction data available.")
+    else:
+        leak_rep = detect_money_leaks(df)
+
+        lk1, lk2 = st.columns(2)
+        with lk1:
+            st.markdown(f"""
+            <div class="kpi-card">
+                <div class="kpi-label"><span>Projected Annual Waste</span> <span>💸</span></div>
+                <div class="kpi-val mono-amount" style="color: #EF4444;">₹{leak_rep.total_annual_leak_estimate:,.2f}</div>
+                <div class="kpi-tag" style="color: #EF4444;">Accumulated Annual Drain Across Leaks</div>
+            </div>
+            """, unsafe_allow_html=True)
+        with lk2:
+            st.markdown(f"""
+            <div class="kpi-card">
+                <div class="kpi-label"><span>Active Leaks Flagged</span> <span>🔍</span></div>
+                <div class="kpi-val mono-amount" style="color: #F59E0B;">{leak_rep.active_leak_count}</div>
+                <div class="kpi-tag" style="color: #64748B;">Subscriptions & Micro-outflows</div>
+            </div>
+            """, unsafe_allow_html=True)
+
+        st.markdown("<br>#### 🚨 Active Leak Alerts", unsafe_allow_html=True)
+        if leak_rep.alerts:
+            for alert in leak_rep.alerts:
+                badge_color = "#EF4444" if alert.severity == "High" else "#F59E0B"
+                st.markdown(f"""
+                <div class="kpi-card" style="border-left: 5px solid {badge_color}; margin-bottom: 14px;">
+                    <div style="display: flex; justify-content: space-between; align-items: center;">
+                        <span style="font-weight: 800; font-size: 1.1rem; color: #0F172A;">{alert.leak_type} • {', '.join(alert.affected_merchants)}</span>
+                        <span style="background: #FEF2F2; color: #991B1B; font-weight: 800; font-size: 0.72rem; padding: 4px 10px; border-radius: 9999px;">{alert.severity.upper()} SEVERITY</span>
+                    </div>
+                    <div class="mono-amount" style="font-size: 1.5rem; font-weight: 800; color: #EF4444; margin: 4px 0;">~₹{alert.annual_cost_estimate:,.0f} / year</div>
+                    <div style="font-size: 0.88rem; color: #334155; margin-top: 4px;"><b>Observation:</b> {alert.explanation}</div>
+                    <div style="font-size: 0.82rem; color: #047857; margin-top: 6px; font-weight: 600;"><b>Action:</b> {alert.action_plan}</div>
+                </div>
+                """, unsafe_allow_html=True)
+        else:
+            st.success("🎉 Zero money leaks detected! Your recurring subscriptions and micro-transactions are fully optimized.")
+
+
+# =========================================================================
+# TAB 5: AI PREDICTION PLAYGROUND (THE SHOWCASE DEMO)
 # =========================================================================
 with tab_sandbox:
-    st.markdown("### ⚡ Live AI Categorization & Feature Attribution")
+    st.markdown("### ⚡ Live AI Categorization & SHAP Waterfall Attribution")
     st.write("Inspect how SpendSense normalizes strings, extracts sub-word n-grams, and calculates calibrated probabilities:")
 
     # Quick Preset Chips (8 Common Patterns)
@@ -803,6 +1112,19 @@ with tab_sandbox:
                 </div>
                 """, unsafe_allow_html=True)
 
+            # SHAP Token Attribution Waterfall Chart
+            if explanation.get("waterfall_steps"):
+                st.markdown("<br>#### 🌊 SHAP / Token Explanation Waterfall", unsafe_allow_html=True)
+                st.caption(
+                    f"Decomposes the prediction into prior base bias $E[f(x)]$ and additive token Shapley values "
+                    f"pushing toward (+ green) or away from (- red) **{pred.predicted_category}**:"
+                )
+                fig_waterfall = build_waterfall_figure(explanation)
+                render_plotly_chart(
+                    fig_waterfall,
+                    alt_text=f"SHAP token attribution waterfall for {pred.predicted_category}",
+                )
+
             # Candidate Probability Breakdown
             if pred.alternatives:
                 st.markdown("#### 🎯 Multi-Class Probability Allocation", unsafe_allow_html=True)
@@ -838,7 +1160,7 @@ with tab_sandbox:
 
 
 # =========================================================================
-# TAB 3: REVIEW & FEEDBACK QUEUE (HUMAN-IN-THE-LOOP ACTIVE LEARNING)
+# TAB 6: REVIEW & FEEDBACK QUEUE (HUMAN-IN-THE-LOOP ACTIVE LEARNING)
 # =========================================================================
 with tab_review:
     st.markdown("### 🔍 Human-in-the-Loop Review Queue")
@@ -888,7 +1210,6 @@ with tab_review:
                     """, unsafe_allow_html=True)
 
                 with c_act1:
-                    # 1-Click Approve Button
                     if st.button(f"✓ Confirm {meta['icon']}", key=f"app_{tid}"):
                         st.session_state.transactions_df.loc[
                             st.session_state.transactions_df["transaction_id"] == tid,
@@ -933,7 +1254,6 @@ with tab_review:
         with rc2:
             if st.button("⚡ Run Retraining Cycle", type="primary", disabled=(correction_count < 5)):
                 with st.spinner("Retraining and evaluating candidate model..."):
-                    # Load synthetic data for base training
                     base_path = Path("data/raw/dataset_synthetic_25000.csv")
                     if base_path.exists():
                         b_df = pd.read_csv(base_path)
@@ -952,7 +1272,7 @@ with tab_review:
 
 
 # =========================================================================
-# TAB 4: RECURRING SUBSCRIPTIONS & FIXED EXPENSES
+# TAB 7: RECURRING SUBSCRIPTIONS & FIXED EXPENSES
 # =========================================================================
 with tab_recurring:
     st.markdown("### 🔄 Recurring Subscriptions & Fixed Bills")
@@ -969,7 +1289,6 @@ with tab_recurring:
         else:
             total_monthly_burn = sum(r.mean_amount for r in recurring_list if r.estimated_frequency == "monthly")
             
-            # Subscriptions KPI Strip
             sk1, sk2, sk3 = st.columns(3)
             with sk1:
                 st.markdown(f"""
@@ -1016,7 +1335,7 @@ with tab_recurring:
 
 
 # =========================================================================
-# TAB 5: UNUSUAL SPENDING SENTINEL
+# TAB 8: UNUSUAL SPENDING SENTINEL
 # =========================================================================
 with tab_anomalies:
     st.markdown("### ⚠️ Spending Anomaly Sentinel")
@@ -1051,10 +1370,10 @@ with tab_anomalies:
 
 
 # =========================================================================
-# TAB 6: DEEP CATEGORY ANALYTICS
+# TAB 9: DEEP CATEGORY ANALYTICS & CA EXPORT
 # =========================================================================
 with tab_analytics:
-    st.markdown("### 📊 Detailed Category Expenditure Breakdown")
+    st.markdown("### 📊 Detailed Category Expenditure & CA Export")
     df = st.session_state.transactions_df
 
     if df.empty or "amount" not in df.columns:
@@ -1088,6 +1407,21 @@ with tab_analytics:
             )
             render_plotly_chart(fig_cat, alt_text="Category expenditure breakdown bar chart")
 
+            # 1-Click Export Section for CA / Tax Preparer
+            st.markdown("<br>#### 📤 Export CA-Ready Statement & Tax Audit Pack", unsafe_allow_html=True)
+            exp_col1, exp_col2 = st.columns([3, 1])
+            with exp_col1:
+                st.caption("Downloads categorized ledger with normalized merchant tokens, calibrated confidence scores, and tax deduction tags.")
+            with exp_col2:
+                csv_data = df.to_csv(index=False).encode("utf-8")
+                st.download_button(
+                    label="📥 Download Audit CSV",
+                    data=csv_data,
+                    file_name="spendsense_categorized_audit.csv",
+                    mime="text/csv",
+                    type="primary",
+                )
+
             st.markdown("<br>#### 🏷️ Category Metrics Roster", unsafe_allow_html=True)
             for _, r in agg_df.iterrows():
                 meta = get_cat_meta(str(r["Category"]))
@@ -1110,49 +1444,85 @@ with tab_analytics:
 
 
 # =========================================================================
-# TAB 7: STATEMENT INGESTION
+# TAB 10: STATEMENT INGESTION (CSV & ENCRYPTED PDF)
 # =========================================================================
 with tab_import:
-    st.markdown("### 📂 Ingest New Bank Statement (CSV)")
-    st.write("Upload exported CSV statements from any banking portal (HDFC, SBI, ICICI, Axis, or international banks).")
+    st.markdown("### 📂 Ingest Bank Statement (CSV or Encrypted PDF)")
+    st.write("Upload exported statements from any banking portal (HDFC, SBI, ICICI, Axis, or international banks). Supports password-protected PDF e-statements!")
 
-    uploaded_file = st.file_uploader("Upload CSV file", type=["csv"])
+    upload_type = st.radio("Statement File Format:", options=["📄 CSV Statement", "🔒 Encrypted / Plain PDF Statement"], horizontal=True)
 
-    if uploaded_file is not None:
-        try:
-            temp_path = Path("data/raw/user_uploaded_statement.csv")
-            temp_path.parent.mkdir(parents=True, exist_ok=True)
-            with open(temp_path, "wb") as f:
-                f.write(uploaded_file.getbuffer())
+    if "PDF" in upload_type:
+        uploaded_pdf = st.file_uploader("Upload Bank PDF Statement", type=["pdf"])
+        pdf_password = st.text_input("Statement Password (leave blank if unencrypted):", type="password", placeholder="e.g. DOB DDMMYYYY or PAN")
 
-            df_new, rep = load_statement_csv(temp_path)
-            st.success(f"✓ Validated {len(df_new):,} records successfully!")
+        if uploaded_pdf is not None:
+            if st.button("🚀 Decrypt & Categorize PDF Statement", type="primary"):
+                try:
+                    with st.spinner("Decrypting and extracting tabular transactions from PDF..."):
+                        pdf_bytes = uploaded_pdf.read()
+                        df_pdf, rep = parse_bank_statement_pdf(pdf_bytes, password=pdf_password if pdf_password else None)
 
-            col_a, col_b, col_c = st.columns(3)
-            col_a.metric("Total Valid Rows", rep.get("valid_rows", len(df_new)))
-            col_b.metric("Debit Outflows", rep.get("debit_count", 0))
-            col_c.metric("Credit Inflows", rep.get("credit_count", 0))
+                        if df_pdf.empty:
+                            st.warning("No structured transaction rows could be extracted from this PDF. Please verify password and format.")
+                        else:
+                            st.success(f"✓ Successfully extracted {len(df_pdf)} rows from {rep['pages_processed']} pages!")
+                            
+                            # Score with active ML pipeline
+                            model = ModelRegistry.load_active_model()
+                            preds = model.predict_batch(df_pdf["normalized_description"].tolist(), threshold=active_thresh)
+                            df_pdf["predicted_category"] = [p.predicted_category for p in preds]
+                            df_pdf["confidence"] = [p.confidence for p in preds]
+                            df_pdf["requires_review"] = [p.requires_review for p in preds]
+                            df_pdf["review_reason"] = [p.review_reason for p in preds]
+                            df_pdf["alternatives"] = [p.alternatives for p in preds]
 
-            if st.button("🚀 Run Multiclass ML Categorization", type="primary"):
-                with st.spinner("Classifying transactions with Calibrated LinearSVC..."):
-                    model = ModelRegistry.load_active_model()
-                    preds = model.predict_batch(df_new["normalized_description"].tolist(), threshold=active_thresh)
-                    df_new["predicted_category"] = [p.predicted_category for p in preds]
-                    df_new["confidence"] = [p.confidence for p in preds]
-                    df_new["requires_review"] = [p.requires_review for p in preds]
-                    df_new["review_reason"] = [p.review_reason for p in preds]
-                    df_new["alternatives"] = [p.alternatives for p in preds]
+                            st.session_state.transactions_df = df_pdf
+                            st.session_state.active_dataset_name = "user_uploaded_pdf"
+                            st.success("✓ Categorization complete! Switch to 'Financial Overview' or 'Tax Intelligence'.")
+                            st.rerun()
 
-                    st.session_state.transactions_df = df_new
-                    st.success("✓ Complete! Switch to 'Financial Overview' or 'Review & Feedback Queue'.")
-                    st.rerun()
+                except Exception as e:
+                    st.error(f"Error parsing PDF statement: {e}")
 
-        except Exception as e:
-            st.error(f"Error parsing file: {e}")
+    else:
+        uploaded_csv = st.file_uploader("Upload CSV Bank Statement", type=["csv"])
+        if uploaded_csv is not None:
+            try:
+                temp_path = Path("data/raw/user_uploaded_statement.csv")
+                temp_path.parent.mkdir(parents=True, exist_ok=True)
+                with open(temp_path, "wb") as f:
+                    f.write(uploaded_csv.getbuffer())
+
+                df_new, rep = load_statement_csv(temp_path)
+                st.success(f"✓ Validated {len(df_new):,} records successfully!")
+
+                col_a, col_b, col_c = st.columns(3)
+                col_a.metric("Total Valid Rows", rep.get("valid_rows", len(df_new)))
+                col_b.metric("Debit Outflows", rep.get("debit_count", 0))
+                col_c.metric("Credit Inflows", rep.get("credit_count", 0))
+
+                if st.button("🚀 Run Multiclass ML Categorization", type="primary"):
+                    with st.spinner("Classifying transactions with Calibrated LinearSVC..."):
+                        model = ModelRegistry.load_active_model()
+                        preds = model.predict_batch(df_new["normalized_description"].tolist(), threshold=active_thresh)
+                        df_new["predicted_category"] = [p.predicted_category for p in preds]
+                        df_new["confidence"] = [p.confidence for p in preds]
+                        df_new["requires_review"] = [p.requires_review for p in preds]
+                        df_new["review_reason"] = [p.review_reason for p in preds]
+                        df_new["alternatives"] = [p.alternatives for p in preds]
+
+                        st.session_state.transactions_df = df_new
+                        st.session_state.active_dataset_name = "user_uploaded_csv"
+                        st.success("✓ Complete! Switch to 'Financial Overview' or 'Tax Intelligence'.")
+                        st.rerun()
+
+            except Exception as e:
+                st.error(f"Error parsing file: {e}")
 
 
 # =========================================================================
-# TAB 8: MODEL ARCHITECTURE & DIAGNOSTICS
+# TAB 11: MODEL ARCHITECTURE & DIAGNOSTICS
 # =========================================================================
 with tab_ml:
     st.markdown("### 🧠 Machine Learning Engine Architecture")

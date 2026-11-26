@@ -10,12 +10,19 @@ SpendSense is a local-first personal financial intelligence system engineered wi
 
 ## 📌 Core Features
 
-1. **Intelligent Bank Statement Ingestion:** Parses heterogeneous CSV statements (HDFC, SBI, ICICI, international exports) with debit/credit separation and Indian UPI/NEFT cleaning.
+1. **Intelligent Bank Statement & PDF Ingestion:** Parses heterogeneous CSV statements (HDFC, SBI, ICICI, international exports) and decrypts password-protected bank PDF e-statements (DOB/PAN unlock) in-memory without saving passwords to disk.
 2. **Confidence-Aware Categorization:** Combined word and character sub-word TF-IDF features with calibrated linear classifiers. Routes uncertain predictions (< 0.70 confidence) to a human review queue.
 3. **Continuous Local Learning:** User corrections are persisted in a local SQLite database, powering a controlled candidate model retraining loop.
-4. **Recurring Subscription Detection:** Automatically detects recurring bills (Netflix, Spotify, SIP, broadband) using merchant grouping, amount volatility (< 15%), and interval regularity.
-5. **Spending Anomaly Alerts:** Uses robust statistical fences (Tukey IQR / Median Absolute Deviation) to flag unusually high expenditures without false fraud claims.
-6. **Production Serving:** Complete RESTful API via **FastAPI** and an interactive **Streamlit** dashboard.
+4. **Inter-Account Transfer Reconciliation:** Detects credit card settlements (`CRED`, `CC payment`), self-transfers, and wallet loads; separates raw debits from effective net outflows to eliminate 2x double-counting.
+5. **Indian Tax Intelligence & 80C/80D Engine:** Identifies Section 80C, 80D, HRA rent (> ₹8,333/mo PAN alert), and 80G donations with a live Old vs. New Tax Regime simulator and 1-click CA tax report export.
+6. **50/30/20 Budgeting & Mid-Month Burn Forecaster:** Allocates expenditures into Needs (50%), Wants (30%), and Savings (20%), projecting month-end burn rate and flagging budget breach days in advance.
+7. **Financial Vitality Score & Runway Engine:** Computes a composite 0–100 wellness index across savings rate, lifestyle discipline, anomaly control, and fixed burden, alongside emergency cash runway in months.
+8. **Money Leak & Redundant Waste Sentinel:** Audits streaming subscriptions (Netflix + Spotify/Prime), food delivery duplication (Swiggy + Zomato), and micro-transaction accumulation (< ₹150) with annual savings projections.
+9. **Recurring Subscription Detection:** Automatically detects recurring bills (Netflix, Spotify, SIP, broadband) using merchant grouping, amount volatility (< 15%), and interval regularity.
+10. **Spending Anomaly Alerts:** Uses robust statistical fences (Tukey IQR / Median Absolute Deviation) to flag unusually high expenditures without false fraud claims.
+11. **Model Explainability & SHAP Waterfall:** Decomposes linear model predictions into base class bias and exact additive sub-word Shapley token contributions with interactive waterfall charts.
+12. **Production Serving:** Complete RESTful API via **FastAPI** (`/predict`, `/feedback`, `/analytics/*`) and an executive **Streamlit** dashboard with 11 master tabs.
+
 
 ---
 

@@ -30,7 +30,8 @@ dependencies = [
     "mlflow>=2.11.0",
     "shap>=0.45.0",
     "duckdb>=0.10.0",
-    "requests>=2.31.0"
+    "requests>=2.31.0",
+    "pypdf>=4.0.0"
 ]
 
 [project.optional-dependencies]

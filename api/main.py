@@ -2,8 +2,8 @@
 
 import logging
 from contextlib import asynccontextmanager
-from typing import Optional
-
+from typing import Any, Dict, List, Optional
+import pandas as pd
 from fastapi import FastAPI, HTTPException, status
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -11,12 +11,30 @@ from api.schemas import (
     AlternativeCategory,
     BatchPredictRequest,
     BatchPredictResponse,
+    BudgetAnalyticsRequest,
     FeedbackRequest,
     FeedbackResponse,
+    HealthAnalyticsRequest,
     HealthResponse,
+    LeakAnalyticsRequest,
     ModelInfoResponse,
     PredictRequest,
     PredictResponse,
+    TaxAnalyticsRequest,
+    TransferReconciliationRequest,
+)
+from spendsense.analytics.budget import BudgetReport, analyze_50_30_20_budget
+from spendsense.analytics.health import FinancialHealthReport, calculate_financial_health
+from spendsense.analytics.leaks import MoneyLeakReport, detect_money_leaks
+from spendsense.analytics.tax import (
+    TaxDeductionSummary,
+    TaxRegimeComparison,
+    compare_tax_regimes,
+    detect_tax_deductions,
+)
+from spendsense.analytics.transfers import (
+    TransferReconciliationSummary,
+    reconcile_inter_account_transfers,
 )
 from spendsense.config import get_config
 from spendsense.data.preprocess import normalize_description
@@ -191,3 +209,65 @@ def record_user_feedback(request: FeedbackRequest):
         message="Correction saved successfully to local feedback database.",
         transaction_id=request.transaction_id,
     )
+
+
+# --- Advanced Financial Analytics Endpoints ---
+
+def _transactions_to_df(transactions) -> pd.DataFrame:
+    """Helper converting Pydantic TransactionItem list to a canonical DataFrame."""
+    rows = []
+    for t in transactions:
+        rows.append({
+            "transaction_id": t.transaction_id,
+            "date": t.date,
+            "raw_description": t.raw_description,
+            "normalized_description": normalize_description(t.raw_description),
+            "amount": t.amount,
+            "predicted_category": t.predicted_category or "Uncategorized",
+        })
+    return pd.DataFrame(rows)
+
+
+@app.post("/analytics/tax", tags=["Analytics"])
+def analyze_tax(request: TaxAnalyticsRequest) -> Dict[str, Any]:
+    """Calculates Section 80C/80D/HRA deductions and simulates Old vs New Tax Regimes."""
+    df = _transactions_to_df(request.transactions)
+    deduction_summary = detect_tax_deductions(df, is_senior_citizen=request.is_senior_citizen)
+    regime_comparison = compare_tax_regimes(
+        annual_gross_income=request.annual_gross_income,
+        total_deductions_claimed=deduction_summary.total_deductions_claimed,
+    )
+    return {
+        "deductions": deduction_summary.model_dump(),
+        "regime_comparison": regime_comparison.model_dump(),
+    }
+
+
+@app.post("/analytics/transfers", response_model=TransferReconciliationSummary, tags=["Analytics"])
+def reconcile_transfers(request: TransferReconciliationRequest):
+    """Separates internal settlements from real consumption to eliminate double-counting."""
+    df = _transactions_to_df(request.transactions)
+    _, summary = reconcile_inter_account_transfers(df)
+    return summary
+
+
+@app.post("/analytics/budget", response_model=BudgetReport, tags=["Analytics"])
+def analyze_budget(request: BudgetAnalyticsRequest):
+    """Evaluates 50/30/20 target allocations and projects mid-month burn rates."""
+    df = _transactions_to_df(request.transactions)
+    return analyze_50_30_20_budget(df, override_inflow=request.override_inflow)
+
+
+@app.post("/analytics/health", response_model=FinancialHealthReport, tags=["Analytics"])
+def evaluate_financial_health(request: HealthAnalyticsRequest):
+    """Generates 0-100 Financial Vitality Score and emergency fund cash runway."""
+    df = _transactions_to_df(request.transactions)
+    return calculate_financial_health(df, override_liquid_balance=request.override_liquid_balance)
+
+
+@app.post("/analytics/leaks", response_model=MoneyLeakReport, tags=["Analytics"])
+def audit_money_leaks(request: LeakAnalyticsRequest):
+    """Identifies recurring subscription redundancies, delivery app leaks, and micro-burn."""
+    df = _transactions_to_df(request.transactions)
+    return detect_money_leaks(df)
+

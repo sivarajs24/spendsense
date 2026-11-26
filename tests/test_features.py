@@ -90,3 +90,17 @@ def test_explain_text_prediction_linear_model():
     tokens = [f["token"] for f in explanation["top_features"]]
     assert any("swiggy" in t or "sw" in t for t in tokens)
 
+    # Verify SHAP Waterfall metadata
+    assert "waterfall_steps" in explanation
+    assert len(explanation["waterfall_steps"]) >= 3
+    assert explanation["waterfall_steps"][0]["label"].startswith("Base Bias")
+    assert explanation["waterfall_steps"][-1]["measure"] == "total"
+
+    # Verify Plotly Figure Builder
+    from spendsense.features.explain import build_waterfall_figure
+    fig = build_waterfall_figure(explanation)
+    assert fig is not None
+    assert len(fig.data) == 1
+    assert fig.data[0].type == "waterfall"
+
+

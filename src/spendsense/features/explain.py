@@ -1,11 +1,13 @@
 """Model explainability and feature attribution module for SpendSense.
 
 Extracts exact linear attributions (TF-IDF weight * classifier coefficient)
-to explain why a transaction was assigned to a specific category.
+and builds publication-grade SHAP waterfall charts to explain why a transaction
+was assigned to a specific category.
 """
 
 from typing import Any, Dict, List, Optional
 import numpy as np
+import plotly.graph_objects as go
 
 
 def explain_text_prediction(
@@ -23,12 +25,13 @@ def explain_text_prediction(
         top_n: Maximum number of contributing features to return.
 
     Returns:
-        Dictionary containing predicted category, top positive features, and top negative features.
+        Dictionary containing predicted category, top features, and waterfall chart steps.
     """
     if not text or not text.strip():
         return {
             "predicted_category": "Uncategorized",
             "top_features": [],
+            "waterfall_steps": [],
             "method": "empty_input",
         }
 
@@ -39,6 +42,7 @@ def explain_text_prediction(
         return {
             "predicted_category": target_category or "Uncategorized",
             "top_features": [],
+            "waterfall_steps": [],
             "method": "unsupported_pipeline",
         }
 
@@ -52,6 +56,7 @@ def explain_text_prediction(
         return {
             "predicted_category": target_category or "Uncategorized",
             "top_features": [],
+            "waterfall_steps": [],
             "method": "feature_extraction_failed",
         }
 
@@ -61,6 +66,7 @@ def explain_text_prediction(
         return {
             "predicted_category": target_category or "Uncategorized",
             "top_features": [],
+            "waterfall_steps": [],
             "method": "out_of_vocabulary",
         }
 
@@ -95,11 +101,20 @@ def explain_text_prediction(
         else:
             class_coefs = coef_matrix[class_idx, non_zero_indices]
 
-        # Linear attribution = tfidf * weight
+        # Intercept / Prior Base Bias E[f(x)]
+        base_bias = 0.0
+        if hasattr(classifier_step, "intercept_"):
+            intercept_arr = classifier_step.intercept_
+            if intercept_arr.ndim == 1 and len(intercept_arr) == 1:
+                base_bias = float(intercept_arr[0] if class_idx == 1 else -intercept_arr[0])
+            elif len(intercept_arr) > class_idx:
+                base_bias = float(intercept_arr[class_idx])
+
+        # Exact LinearSHAP attribution: phi_i = tfidf_i * w_i
         contributions = tfidf_values * class_coefs
 
-        # Sort by contribution
-        sort_order = np.argsort(contributions)[::-1]
+        # Sort features by absolute contribution magnitude
+        sort_order = np.argsort(np.abs(contributions))[::-1]
         top_indices = sort_order[:top_n]
 
         top_features: List[Dict[str, Any]] = []
@@ -112,9 +127,48 @@ def explain_text_prediction(
                 "is_positive": score > 0,
             })
 
+        # Construct SHAP Waterfall Steps
+        waterfall_steps: List[Dict[str, Any]] = [
+            {
+                "label": "Base Bias (E[f(x)])",
+                "value": round(base_bias, 4),
+                "measure": "relative",
+            }
+        ]
+
+        for idx in top_indices:
+            score = float(contributions[idx])
+            waterfall_steps.append({
+                "label": clean_names[idx],
+                "value": round(score, 4),
+                "measure": "relative",
+            })
+
+        # Bundle remaining tail tokens if any
+        if len(sort_order) > top_n:
+            rem_indices = sort_order[top_n:]
+            rem_score = float(np.sum(contributions[rem_indices]))
+            if abs(rem_score) >= 1e-4:
+                waterfall_steps.append({
+                    "label": f"+{len(rem_indices)} Other Sub-words",
+                    "value": round(rem_score, 4),
+                    "measure": "relative",
+                })
+
+        # Final Net Decision Margin f(x)
+        total_margin = base_bias + float(np.sum(contributions))
+        waterfall_steps.append({
+            "label": "Net Margin f(x)",
+            "value": round(total_margin, 4),
+            "measure": "total",
+        })
+
         return {
             "predicted_category": target_category,
+            "base_value": round(base_bias, 4),
+            "total_score": round(total_margin, 4),
             "top_features": top_features,
+            "waterfall_steps": waterfall_steps,
             "method": "linear_coefficient_attribution",
         }
 
@@ -125,8 +179,96 @@ def explain_text_prediction(
         for i in sort_order
     ]
 
+    waterfall_steps = [
+        {"label": "Base Prior", "value": 0.0, "measure": "relative"}
+    ]
+    for i in sort_order:
+        waterfall_steps.append({
+            "label": clean_names[i],
+            "value": round(float(tfidf_values[i]), 4),
+            "measure": "relative",
+        })
+    waterfall_steps.append({
+        "label": "Total TF-IDF Weight",
+        "value": round(float(np.sum(tfidf_values)), 4),
+        "measure": "total",
+    })
+
     return {
         "predicted_category": target_category or "Uncategorized",
+        "base_value": 0.0,
+        "total_score": round(float(np.sum(tfidf_values)), 4),
         "top_features": top_features,
+        "waterfall_steps": waterfall_steps,
         "method": "tfidf_magnitude",
     }
+
+
+def build_waterfall_figure(explanation: Dict[str, Any]) -> go.Figure:
+    """Builds a high-contrast executive SHAP waterfall chart from explanation steps."""
+    steps = explanation.get("waterfall_steps", [])
+    if not steps:
+        fig = go.Figure()
+        fig.update_layout(
+            annotations=[dict(text="No attribution tokens available", showarrow=False, font=dict(size=14, color="#64748B"))],
+            paper_bgcolor="rgba(0,0,0,0)",
+            plot_bgcolor="rgba(0,0,0,0)",
+            height=200,
+        )
+        return fig
+
+    labels = [s["label"] for s in steps]
+    values = [s["value"] for s in steps]
+    measures = [s["measure"] for s in steps]
+
+    text_labels = []
+    for s in steps:
+        val = s["value"]
+        if s["measure"] == "total":
+            text_labels.append(f"<b>{val:+.2f}</b>")
+        else:
+            text_labels.append(f"{val:+.2f}")
+
+    fig = go.Figure(
+        go.Waterfall(
+            name="SHAP Attribution",
+            orientation="v",
+            measure=measures,
+            x=labels,
+            y=values,
+            text=text_labels,
+            textposition="outside",
+            textfont=dict(family="JetBrains Mono, monospace", size=11, color="#0F172A"),
+            connector={"line": {"color": "#CBD5E1", "width": 1.5, "dash": "dot"}},
+            increasing={"marker": {"color": "#10B981"}},
+            decreasing={"marker": {"color": "#EF4444"}},
+            totals={"marker": {"color": "#4F46E5"}},
+        )
+    )
+
+    pred_cat = explanation.get("predicted_category", "Category")
+    fig.update_layout(
+        title=dict(
+            text=f"SHAP Logit Attribution Waterfall • <b>{pred_cat}</b>",
+            font=dict(size=13, color="#0F172A", family="Plus Jakarta Sans, sans-serif"),
+            x=0.01,
+            y=0.96,
+        ),
+        paper_bgcolor="rgba(0,0,0,0)",
+        plot_bgcolor="rgba(0,0,0,0)",
+        height=320,
+        showlegend=False,
+        margin=dict(t=50, b=30, l=40, r=20),
+        xaxis=dict(
+            showgrid=False,
+            tickfont=dict(size=11, color="#334155", family="JetBrains Mono, monospace"),
+        ),
+        yaxis=dict(
+            title=dict(text="Logit Contribution", font=dict(size=11, color="#64748B")),
+            showgrid=True,
+            gridcolor="#F1F5F9",
+            tickfont=dict(size=11, color="#64748B"),
+        ),
+    )
+
+    return fig
